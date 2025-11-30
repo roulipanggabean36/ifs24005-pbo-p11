@@ -3,22 +3,27 @@ package org.delcom.app.dto;
 import java.util.UUID;
 
 public class TodoForm {
-
+    
     private UUID id;
-
     private String title;
-
     private String description;
-
-    private boolean isFinished = false;
-
+    private boolean finished;
     private String confirmTitle;
 
-    // Constructor
+    // Constructor Kosong
     public TodoForm() {
     }
 
-    // Getters and Setters
+    // Constructor Lengkap
+    public TodoForm(UUID id, String title, String description, boolean finished, String confirmTitle) {
+        this.id = id;
+        this.title = title;
+        this.description = description;
+        this.finished = finished;
+        this.confirmTitle = confirmTitle;
+    }
+
+    // Getters & Setters
     public UUID getId() {
         return id;
     }
@@ -43,12 +48,21 @@ public class TodoForm {
         this.description = description;
     }
 
-    public boolean getIsFinished() {
-        return isFinished;
+    public boolean getFinished() {
+        return finished;
     }
 
-    public void setIsFinished(boolean isFinished) {
-        this.isFinished = isFinished;
+    public void setFinished(boolean finished) {
+        this.finished = finished;
+    }
+
+    // Helper method untuk kompatibilitas (Jaga-jaga)
+    public boolean getIsFinished() {
+        return finished;
+    }
+
+    public void setIsFinished(boolean finished) {
+        this.finished = finished;
     }
 
     public String getConfirmTitle() {

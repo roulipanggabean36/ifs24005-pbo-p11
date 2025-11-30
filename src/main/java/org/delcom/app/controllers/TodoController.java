@@ -1,147 +1,98 @@
 package org.delcom.app.controllers;
 
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import org.delcom.app.configs.ApiResponse;
-import org.delcom.app.configs.AuthContext;
-import org.delcom.app.entities.Todo;
+import org.delcom.app.dto.TodoForm;
 import org.delcom.app.entities.User;
+import org.delcom.app.services.CashFlowService;
 import org.delcom.app.services.TodoService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PutMapping;
 
-@RestController
-@RequestMapping("/api/todos")
+import java.util.UUID;
+
+@Controller
 public class TodoController {
-    private final TodoService todoService;
 
     @Autowired
-    protected AuthContext authContext;
+    private TodoService todoService;
 
-    public TodoController(TodoService todoService) {
-        this.todoService = todoService;
+    @Autowired
+    private CashFlowService cashFlowService;
+
+    // Helper untuk cek login
+    private boolean isAuthenticated(Authentication auth) {
+        return auth != null &&
+               auth.isAuthenticated() &&
+               !(auth instanceof AnonymousAuthenticationToken) &&
+               auth.getPrincipal() instanceof User;
     }
 
-    // Menambahkan todo baru
-    // -------------------------------
-    @PostMapping
-    public ResponseEntity<ApiResponse<Map<String, UUID>>> createTodo(@RequestBody Todo reqTodo) {
+    // --- HALAMAN HOME ---
+    @GetMapping("/")
+    public String index(Model model) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
-        if (reqTodo.getTitle() == null || reqTodo.getTitle().isEmpty()) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>("fail", "Data title tidak valid", null));
-        } else if (reqTodo.getDescription() == null || reqTodo.getDescription().isEmpty()) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>("fail", "Data description tidak valid", null));
+        if (!isAuthenticated(auth)) {
+            return "redirect:/auth/logout";
         }
 
-        // Validasi autentikasi
-        if (!authContext.isAuthenticated()) {
-            return ResponseEntity.status(403).body(new ApiResponse<>("fail", "User tidak terautentikasi", null));
-        }
-        User authUser = authContext.getAuthUser();
+        User user = (User) auth.getPrincipal();
+        model.addAttribute("auth", user);
 
-        Todo newTodo = todoService.createTodo(authUser.getId(), reqTodo.getTitle(), reqTodo.getDescription());
-        return ResponseEntity.ok(new ApiResponse<Map<String, UUID>>(
-                "success",
-                "Todo berhasil dibuat",
-                Map.of("id", newTodo.getId())));
+        model.addAttribute("todos", todoService.getAllTodos(user.getId(), null));
+        model.addAttribute("listCashFlow", cashFlowService.getAllCashFlows());
+
+        // Fitur Baru: Ringkasan
+        model.addAttribute("totalIncome", cashFlowService.getTotalIncome());
+        model.addAttribute("totalExpense", cashFlowService.getTotalExpense());
+        model.addAttribute("totalBalance", cashFlowService.getBalance());
+
+        model.addAttribute("addTodoModalOpen", false);
+        model.addAttribute("editTodoModalOpen", false);
+        model.addAttribute("deleteTodoModalOpen", false);
+        model.addAttribute("todoForm", new TodoForm());
+
+        // PERBAIKAN: Ubah dari "pages/todos/home" menjadi "pages/home"
+        return "pages/home";
     }
 
-    // Mendapatkan semua todo dengan opsi pencarian
-    // -------------------------------
-    @GetMapping
-    public ResponseEntity<ApiResponse<Map<String, List<Todo>>>> getAllTodos(
-            @RequestParam(required = false) String search) {
-        // Validasi autentikasi
-        if (!authContext.isAuthenticated()) {
-            return ResponseEntity.status(403).body(new ApiResponse<>("fail", "User tidak terautentikasi", null));
+    // --- ADD TODO ---
+    @PostMapping("/todos")
+    public String addTodo(@ModelAttribute("todoForm") TodoForm form) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (isAuthenticated(auth)) {
+            User user = (User) auth.getPrincipal();
+            todoService.createTodo(user.getId(), form.getTitle(), form.getDescription());
         }
-        User authUser = authContext.getAuthUser();
-
-        List<Todo> todos = todoService.getAllTodos(authUser.getId(), search);
-        return ResponseEntity.ok(new ApiResponse<>(
-                "success",
-                "Daftar todo berhasil diambil",
-                Map.of("todos", todos)));
+        return "redirect:/";
     }
 
-    // Mendapatkan todo berdasarkan ID
-    // -------------------------------
-    @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Map<String, Todo>>> getTodoById(@PathVariable UUID id) {
-        // Validasi autentikasi
-        if (!authContext.isAuthenticated()) {
-            return ResponseEntity.status(403).body(new ApiResponse<>("fail", "User tidak terautentikasi", null));
+    // --- EDIT TODO ---
+    @PostMapping("/todos/{id}/edit")
+    public String editTodo(@PathVariable UUID id, @ModelAttribute("todoForm") TodoForm form) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (isAuthenticated(auth)) {
+            User user = (User) auth.getPrincipal();
+            todoService.updateTodo(user.getId(), id, form.getTitle(), form.getDescription(), form.getFinished());
         }
-        User authUser = authContext.getAuthUser();
-
-        Todo todo = todoService.getTodoById(authUser.getId(), id);
-        if (todo == null) {
-            return ResponseEntity.status(404).body(new ApiResponse<>("fail", "Data todo tidak ditemukan", null));
-        }
-
-        return ResponseEntity.ok(new ApiResponse<>(
-                "success",
-                "Data todo berhasil diambil",
-                Map.of("todo", todo)));
+        return "redirect:/";
     }
 
-    // Memperbarui todo berdasarkan ID
-    // -------------------------------
-    @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<Todo>> updateTodo(@PathVariable UUID id, @RequestBody Todo reqTodo) {
-
-        if (reqTodo.getTitle() == null || reqTodo.getTitle().isEmpty()) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>("fail", "Data title tidak valid", null));
-        } else if (reqTodo.getDescription() == null || reqTodo.getDescription().isEmpty()) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>("fail", "Data description tidak valid", null));
-        } else if (reqTodo.isFinished() == null) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>("fail", "Data isFinished tidak valid", null));
+    // --- DELETE TODO ---
+    @GetMapping("/todos/{id}/delete")
+    public String deleteTodo(@PathVariable UUID id) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (isAuthenticated(auth)) {
+            User user = (User) auth.getPrincipal();
+            todoService.deleteTodo(user.getId(), id);
         }
-
-        // Validasi autentikasi
-        if (!authContext.isAuthenticated()) {
-            return ResponseEntity.status(403).body(new ApiResponse<>("fail", "User tidak terautentikasi", null));
-        }
-        User authUser = authContext.getAuthUser();
-
-        Todo updatedTodo = todoService.updateTodo(authUser.getId(), id, reqTodo.getTitle(), reqTodo.getDescription(),
-                reqTodo.isFinished());
-        if (updatedTodo == null) {
-            return ResponseEntity.status(404).body(new ApiResponse<>("fail", "Data todo tidak ditemukan", null));
-        }
-
-        return ResponseEntity.ok(new ApiResponse<>("success", "Data todo berhasil diperbarui", null));
-    }
-
-    // Menghapus todo berdasarkan ID
-    // -------------------------------
-    @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<String>> deleteTodo(@PathVariable UUID id) {
-        // Validasi autentikasi
-        if (!authContext.isAuthenticated()) {
-            return ResponseEntity.status(403).body(new ApiResponse<>("fail", "User tidak terautentikasi", null));
-        }
-        User authUser = authContext.getAuthUser();
-
-        boolean status = todoService.deleteTodo(authUser.getId(), id);
-        if (!status) {
-            return ResponseEntity.status(404).body(new ApiResponse<>("fail", "Data todo tidak ditemukan", null));
-        }
-
-        return ResponseEntity.ok(new ApiResponse<>(
-                "success",
-                "Data todo berhasil dihapus",
-                null));
+        return "redirect:/";
     }
 }
